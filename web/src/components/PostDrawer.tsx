@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Braces, Check, ExternalLink, MessageCircle, Plus, RefreshCw, Send, SlidersHorizontal, Trash2, Volume2 } from "lucide-react";
 import { api, type StylesResponse } from "../lib/api";
 import { cx, fmtDateTime, fromLocalInput, mediaUrl, relTime, toLocalInput } from "../lib/format";
-import type { Asset, CarouselSlide, CarouselSpec, HtmlReelSpec, ImageSpec, MediaRef, Post, ReelSpec, Scene } from "../lib/types";
+import type { Asset, CarouselSlide, CarouselSpec, HtmlReelSpec, ImageSpec, MediaRef, Post, PostEvent, ReelSpec, Scene } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { useToast } from "../state/toast";
 import { AssetThumb, isHtmlSpec, PostPreview } from "./media";
@@ -128,6 +128,22 @@ function SlideEditor({ spec, onChange, assets }: { spec: CarouselSpec; onChange:
   );
 }
 
+function describeEvent(e: PostEvent): string {
+  const d = (e.detail ?? {}) as Record<string, any>;
+  switch (e.action) {
+    case "status": return `Status ${d.from ?? "?"} → ${d.to ?? "?"}`;
+    case "rescheduled": return `Rescheduled to ${d.to ? fmtDateTime(d.to) : "no time"}`;
+    case "approved": return `Approved rev ${d.revision ?? "?"} for ${d.scheduledAt ? fmtDateTime(d.scheduledAt) : "next slot"}`;
+    case "edited": return `Edited ${(d.fields ?? []).join(", ")}`;
+    case "edited_after_approval": return `Edited ${(d.fields ?? []).join(", ")} after approval → back to review`;
+    case "change_requested": return `Change requested: “${d.text ?? ""}”${d.wasApproved ? " (was approved)" : ""}`;
+    case "publish_now": return "Publish now";
+    case "deleted": return "Deleted";
+    case "automation_created": return `Automation “${d.keyword}” created`;
+    default: return e.action.replace(/_/g, " ");
+  }
+}
+
 export function PostDrawer({ post, onClose, onChanged, onDeleted }: { post: Post | null; onClose: () => void; onChanged: (p: Post) => void; onDeleted?: (id: string) => void }) {
   const { toast, fail } = useToast();
   const [current, setCurrent] = useState<Post | null>(post);
@@ -136,6 +152,8 @@ export function PostDrawer({ post, onClose, onChanged, onDeleted }: { post: Post
   const [raw, setRaw] = useState<string | null>(null);
   const [tab, setTab] = useState<"chat" | "edit">("chat");
   const styles = useApi(loadStyles, []);
+  // Action history: who did what to this post (dashboard, Claude via MCP, system), refreshed whenever the post changes.
+  const events = useApi(() => (post ? api.postEvents(post.id) : Promise.resolve([] as PostEvent[])), [post?.id, current?.updatedAt]);
   const assets = useApi(() => (post ? api.assets(post.brandId) : Promise.resolve([])), [post?.brandId]);
 
   useEffect(() => {
@@ -267,6 +285,20 @@ export function PostDrawer({ post, onClose, onChanged, onDeleted }: { post: Post
             )}
             {current.error && <div className="rounded-lg bg-rose-50 p-2 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">{current.error}</div>}
           </div>
+          {(events.data?.length ?? 0) > 0 && (
+            <div>
+              <div className="mb-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-300">History</div>
+              <ul className="max-h-56 space-y-1 overflow-y-auto pr-1">
+                {events.data!.map((e) => (
+                  <li key={e.id} className="flex items-start gap-2 rounded-lg bg-zinc-100 px-2.5 py-1.5 text-xs dark:bg-zinc-800">
+                    <span className={cx("mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold", e.actor === "claude-mcp" ? "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-200" : e.actor === "system" ? "bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200")}>{e.actor}</span>
+                    <span className="min-w-0 flex-1">{describeEvent(e)}</span>
+                    <span className="shrink-0 text-zinc-500" title={fmtDateTime(e.at)}>{relTime(e.at)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {current.changeRequests?.length > 0 && (
             <div>
               <div className="mb-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-300">Change requests</div>

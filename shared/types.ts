@@ -231,6 +231,17 @@ export interface Post {
   updatedAt: string;
 }
 
+// ---------- Action history (who changed what, when) ----------
+export interface PostEvent {
+  id: ID;
+  postId?: ID;                  // omitted for brand-level events (e.g. automations)
+  brandId: ID;
+  at: string;                   // ISO
+  actor: string;                // "dashboard" | "claude-mcp" | "system" | other x-actor header
+  action: string;               // "created" | "edited" | "edited_after_approval" | "status" | "approved" | "change_requested" | "published" | "deleted" | "automation_created" | ...
+  detail?: Record<string, unknown>; // e.g. { from, to } for status, { fields } for edits
+}
+
 // ---------- Automations (comment → DM) ----------
 export interface Automation {
   id: ID;

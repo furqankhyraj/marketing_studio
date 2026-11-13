@@ -1,6 +1,6 @@
 import type {
   Asset, Audit, Automation, Brand, BrandBrain, CaptionStyleMeta, CommentLog, MusicTrack, Post, PostStatus, PostType, Settings, StyleMeta,
-  AutopilotDigest, AutopilotSettings, ImageDesign,
+  AutopilotDigest, AutopilotSettings, ImageDesign, PostEvent,
 } from "./types";
 
 /** Thrown for any failed API call. `down` = the API server is unreachable. */
@@ -36,7 +36,7 @@ export async function request<T>(method: Method, path: string, body?: unknown): 
     const { mockHandle } = await import("./mock");
     return mockHandle(method, path, body) as Promise<T>;
   }
-  const init: RequestInit = { method, headers: {} };
+  const init: RequestInit = { method, headers: { "x-actor": "dashboard" } };
   if (body instanceof FormData) init.body = body;
   else if (body !== undefined) {
     init.body = JSON.stringify(body);
@@ -142,6 +142,7 @@ export const api = {
   post: (id: string) => request<Post>("GET", `/api/posts/${id}`),
   updatePost: (id: string, b: PostPatch) => request<Post>("PATCH", `/api/posts/${id}`, b),
   deletePost: (id: string) => request<{ ok: true }>("DELETE", `/api/posts/${id}`),
+  postEvents: (id: string) => request<PostEvent[]>("GET", `/api/posts/${id}/events`),
   render: (id: string) => request<Post>("POST", `/api/posts/${id}/render`),
   approve: (id: string, scheduledAt?: string) => request<Post>("POST", `/api/posts/${id}/approve`, scheduledAt ? { scheduledAt } : {}),
   requestChange: (id: string, text: string) => request<Post>("POST", `/api/posts/${id}/change`, { text }),

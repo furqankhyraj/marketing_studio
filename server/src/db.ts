@@ -2,9 +2,11 @@
 // plus a few indexed columns used for filtering. Secrets (tokens, API keys) live in separate columns
 // / keys and are never part of the returned documents.
 import { DatabaseSync } from "node:sqlite";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomBytes } from "node:crypto";
 import { DB_PATH, DEFAULT_MODEL } from "./config.ts";
 import { capHashtags } from "./hashtags.ts";
-import type { Brand, Asset, Audit, Post, Automation, CommentLog, Settings } from "../../shared/types.ts";
+import type { Brand, Asset, Audit, Post, Automation, CommentLog, Settings, PostEvent } from "../../shared/types.ts";
 
 export const db = new DatabaseSync(DB_PATH);
 db.exec(`
@@ -16,6 +18,9 @@ CREATE TABLE IF NOT EXISTS audits (id TEXT PRIMARY KEY, brand_id TEXT NOT NULL, 
 CREATE TABLE IF NOT EXISTS posts (id TEXT PRIMARY KEY, brand_id TEXT NOT NULL, status TEXT, type TEXT, scheduled_at TEXT, data TEXT NOT NULL, created_at TEXT);
 CREATE TABLE IF NOT EXISTS automations (id TEXT PRIMARY KEY, brand_id TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT);
 CREATE TABLE IF NOT EXISTS comment_log (id TEXT PRIMARY KEY, brand_id TEXT NOT NULL, ig_comment_id TEXT UNIQUE, data TEXT NOT NULL, created_at TEXT);
+CREATE TABLE IF NOT EXISTS post_events (id TEXT PRIMARY KEY, post_id TEXT, brand_id TEXT NOT NULL, at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT);
+CREATE INDEX IF NOT EXISTS idx_events_post ON post_events(post_id);
+CREATE INDEX IF NOT EXISTS idx_events_brand ON post_events(brand_id, at);
 CREATE INDEX IF NOT EXISTS idx_assets_brand ON assets(brand_id);
 CREATE INDEX IF NOT EXISTS idx_posts_brand ON posts(brand_id);
 CREATE INDEX IF NOT EXISTS idx_posts_sched ON posts(scheduled_at);
@@ -186,16 +191,37 @@ export function savePost(p: Post): Post {
   );
   return p;
 }
-/** Read-modify-write a post (always starts from the latest DB state). */
+/** Read-modify-write a post (always starts from the latest DB state). Status / schedule changes are written to the action history. */
 export function updatePost(id: string, fn: (p: any) => void): Post | undefined {
   const p = getPost(id);
   if (!p) return undefined;
+  const before = { status: p.status, scheduledAt: p.scheduledAt };
   fn(p);
   p.updatedAt = new Date().toISOString();
-  return savePost(p);
+  const saved = savePost(p);
+  if (before.status !== p.status) logEvent({ postId: p.id, brandId: p.brandId, action: "status", detail: { from: before.status, to: p.status } });
+  if (before.scheduledAt !== p.scheduledAt && p.status !== "rendering") logEvent({ postId: p.id, brandId: p.brandId, action: "rescheduled", detail: { from: before.scheduledAt ?? null, to: p.scheduledAt ?? null } });
+  return saved;
 }
 export function deletePostRow(id: string) {
   db.prepare("DELETE FROM posts WHERE id = ?").run(id);
+}
+
+// ---------- action history ----------
+// The actor is set per HTTP request (x-actor header, see index.ts); background workers run as "system".
+export const actorStore = new AsyncLocalStorage<string>();
+export const currentActor = () => actorStore.getStore() ?? "system";
+export function logEvent(e: { postId?: string; brandId: string; action: string; detail?: Record<string, unknown>; actor?: string }): PostEvent {
+  const ev: PostEvent = { id: randomBytes(8).toString("base64url"), postId: e.postId, brandId: e.brandId, at: new Date().toISOString(), actor: e.actor ?? currentActor(), action: e.action, detail: e.detail };
+  db.prepare("INSERT INTO post_events(id, post_id, brand_id, at, actor, action, detail) VALUES(?, ?, ?, ?, ?, ?, ?)").run(ev.id, ev.postId ?? null, ev.brandId, ev.at, ev.actor, ev.action, ev.detail ? JSON.stringify(ev.detail) : null);
+  return ev;
+}
+const rowToEvent = (r: Row): PostEvent => ({ id: r.id, postId: r.post_id ?? undefined, brandId: r.brand_id, at: r.at, actor: r.actor, action: r.action, detail: r.detail ? JSON.parse(r.detail) : undefined });
+export function listPostEvents(postId: string): PostEvent[] {
+  return (db.prepare("SELECT * FROM post_events WHERE post_id = ? ORDER BY at DESC LIMIT 200").all(postId) as Row[]).map(rowToEvent);
+}
+export function listBrandEvents(brandId: string, limit = 100): PostEvent[] {
+  return (db.prepare("SELECT * FROM post_events WHERE brand_id = ? ORDER BY at DESC LIMIT ?").all(brandId, limit) as Row[]).map(rowToEvent);
 }
 
 // ---------- automations ----------

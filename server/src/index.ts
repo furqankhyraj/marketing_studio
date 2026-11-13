@@ -24,6 +24,11 @@ import { registerGrowthRoutes } from "./growth.ts";
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+// Action history: every state change is recorded with the actor that caused it (x-actor header: "dashboard", "claude-mcp", …).
+app.use((req, _res, next) => {
+  const actor = String(req.header("x-actor") ?? "").trim().slice(0, 40) || "api";
+  db.actorStore.run(actor, () => next());
+});
 (await import("./music.ts")).registerMusicRoutes(app); // music library, /api/music, POST /api/posts/:id/music, music settings
 (await import("./etsy.ts")).registerEtsyRoutes(app); // Etsy shop → listings → posts (+ etsyApiKey setting, brand etsyShop); see CONTRACTS.md "Etsy shop"
 
@@ -381,20 +386,34 @@ app.patch("/api/posts/:id", (req, res) => {
     }
   }
   const sched = body.scheduledAt === null ? null : validIso(body.scheduledAt);
-  res.json(
-    db.updatePost(cur.id, (x) => {
-      if (typeof body.title === "string") x.title = body.title;
-      if (typeof body.hook === "string") x.hook = body.hook;
-      if (typeof body.caption === "string") x.caption = body.caption;
-      if (Array.isArray(body.hashtags)) x.hashtags = body.hashtags.map((h: any) => String(h).replace(/^#/, "").replace(/\s+/g, ""));
-      if (spec) x.spec = spec;
-      if (sched === null) x.scheduledAt = undefined;
-      else if (sched) x.scheduledAt = sched;
-    }),
-  );
+  const changed: string[] = [];
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const wasApproved = cur.status === "approved" || (cur as any).approvedPending === true;
+  const out = db.updatePost(cur.id, (x) => {
+    if (typeof body.title === "string" && body.title !== x.title) { x.title = body.title; changed.push("title"); }
+    if (typeof body.hook === "string" && body.hook !== x.hook) { x.hook = body.hook; changed.push("hook"); }
+    if (typeof body.caption === "string" && body.caption !== x.caption) { x.caption = body.caption; changed.push("caption"); }
+    if (Array.isArray(body.hashtags)) {
+      const tags = body.hashtags.map((h: any) => String(h).replace(/^#/, "").replace(/\s+/g, ""));
+      if (!same(tags, x.hashtags)) { x.hashtags = tags; changed.push("hashtags"); }
+    }
+    if (spec && !same(spec, x.spec)) { x.spec = spec; changed.push("spec"); }
+    if (sched === null && x.scheduledAt) { x.scheduledAt = undefined; changed.push("scheduledAt"); }
+    else if (sched && sched !== x.scheduledAt) { x.scheduledAt = sched; changed.push("scheduledAt"); }
+    // Approval is tied to the exact words, media and time that were approved: any edit after approval sends the post back to review.
+    if (wasApproved && changed.length) {
+      if (x.status === "approved") x.status = "ready";
+      delete x.approvedPending;
+    }
+  });
+  if (changed.length) db.logEvent({ postId: cur.id, brandId: cur.brandId, action: wasApproved ? "edited_after_approval" : "edited", detail: { fields: changed, ...(wasApproved ? { approvalReset: true } : {}) } });
+  res.json(out);
 });
+app.get("/api/posts/:id/events", (req, res) => res.json(db.listPostEvents(postOr404(p(req, "id")).id)));
+app.get("/api/brands/:id/events", (req, res) => res.json(db.listBrandEvents(brandOr404(p(req, "id")).id, Number(req.query.limit) || 100)));
 app.delete("/api/posts/:id", (req, res) => {
   const x = postOr404(p(req, "id"));
+  db.logEvent({ postId: x.id, brandId: x.brandId, action: "deleted", detail: { title: x.title, status: x.status } });
   db.deletePostRow(x.id);
   fs.rmSync(path.join(RENDERS_DIR, x.id), { recursive: true, force: true });
   res.json({ ok: true });
@@ -409,6 +428,7 @@ app.post("/api/posts/:id/approve", (req, res) => {
   if (["posted", "publishing"].includes(x.status)) throw new HttpError(409, `Post is already ${x.status}`);
   const b = brandOr404(x.brandId);
   const sched = validIso(req.body?.scheduledAt) ?? (x.scheduledAt && Date.parse(x.scheduledAt) > Date.now() ? x.scheduledAt : nextSlotForBrand(b));
+  db.logEvent({ postId: x.id, brandId: x.brandId, action: "approved", detail: { scheduledAt: sched, revision: x.revision, title: x.title } });
   res.json(
     db.updatePost(x.id, (y) => {
       // While a (re-)render is running, remember the approval and apply it when the render finishes.
@@ -424,12 +444,14 @@ app.post("/api/posts/:id/change", async (req, res) => {
   const text = str(req.body?.text);
   if (!text) throw bad("text is required");
   if (["posted", "publishing"].includes(x.status)) throw new HttpError(409, `Post is already ${x.status}`);
+  db.logEvent({ postId: x.id, brandId: x.brandId, action: "change_requested", detail: { text, wasApproved: x.status === "approved" } });
   res.json(await requestChange(x.id, text));
 });
 app.post("/api/posts/:id/publish", async (req, res) => {
   const x = postOr404(p(req, "id"));
   if (x.status === "publishing") throw new HttpError(409, "Already publishing");
   if (x.status === "posted") throw new HttpError(409, "Already posted");
+  db.logEvent({ postId: x.id, brandId: x.brandId, action: "publish_now", detail: { title: x.title } });
   try {
     res.json(await ig.publishPost(x.id));
   } catch (e: any) {
@@ -466,6 +488,7 @@ app.post("/api/brands/:id/automations", (req, res) => {
     createdAt: nowIso(),
   };
   if (!a.replyText && !a.dmText) throw bad("replyText or dmText is required");
+  db.logEvent({ postId: a.postId, brandId: b.id, action: "automation_created", detail: { keyword: a.keyword, replyText: a.replyText, dmText: a.dmText, link: a.link ?? null } });
   res.status(201).json(db.saveAutomation(a));
 });
 app.patch("/api/automations/:id", (req, res) => {

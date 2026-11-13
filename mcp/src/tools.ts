@@ -761,7 +761,7 @@ export function registerTools(server: McpServer) {
     {
       title: "Update post",
       description:
-        "Edit a post's title, hook, caption, hashtags, schedule, or full spec (pass the complete spec object from get_post, modified). Set rerender=true to re-render after a spec change.",
+        "Edit a post's title, hook, caption, hashtags, schedule, or full spec (pass the complete spec object from get_post, modified). Set rerender=true to re-render after a spec change. Editing an APPROVED post sends it back to 'ready' (needs the user's approval again): approval is tied to the exact words, media and time that were approved.",
       inputSchema: {
         postId,
         title: z.string().optional(),
@@ -902,9 +902,10 @@ export function registerTools(server: McpServer) {
     {
       title: "Create comment→DM automation",
       description:
-        "When someone comments the keyword (case-insensitive) on the brand's posts, reply publicly and send them a DM (with optional link). Confirm the reply/DM wording with the user before creating.",
+        "When someone comments the keyword (case-insensitive) on the brand's posts, reply publicly and send them a DM (with optional link). The exact reply and DM wording must be shown to the user and approved before this is called (userConfirmed=true); the server records who created it.",
       inputSchema: {
         brandId,
+        userConfirmed,
         keyword: z.string().min(1).describe("e.g. GROW"),
         replyText: z.string().describe("Public comment reply, e.g. \"Sent you a DM! 📩\""),
         dmText: z.string().describe("Private DM text."),
@@ -913,7 +914,8 @@ export function registerTools(server: McpServer) {
         enabled: z.boolean().optional(),
       },
     },
-    safe(async ({ brandId, ...body }) => {
+    safe(async ({ brandId, userConfirmed, ...body }) => {
+      if (userConfirmed !== true) return fail("Not approved: show the user the exact reply and DM text, get an explicit yes, then call again with userConfirmed=true.");
       const a = await post<Automation>(`/brands/${encodeURIComponent(brandId)}/automations`, stripUndefined(body));
       return ok(`Created automation:\n${automationLine(a)}`, a);
     }),

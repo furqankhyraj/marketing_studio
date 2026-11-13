@@ -53,7 +53,7 @@ export async function api<T = unknown>(
   try {
     res = await fetch(url, {
       method,
-      headers: opts.body !== undefined ? { "content-type": "application/json" } : undefined,
+      headers: { "x-actor": "claude-mcp", ...(opts.body !== undefined ? { "content-type": "application/json" } : {}) },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       signal: controller.signal,
     });

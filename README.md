@@ -188,7 +188,11 @@ Prompts: `pinterest_publisher`, course/academy and product-shop playbooks. Resou
 **Safety rails baked into the server**
 
 - Nothing is approved, scheduled or published without a human decision; `publish_now` requires an explicit `userConfirmed` flag and the MCP instructions forbid calling it on the agent's own initiative.
+- **Approval is tied to the exact post.** It covers the words, media, account and time that were approved. Any edit after approval, by any tool or agent, sends the post back to "needs review"; a change request does the same after its re-render.
+- **Comment → DM automations need their own approval.** The MCP tool refuses to create one unless the user has seen the exact reply and DM wording and said yes.
+- **Visible action history.** Every state change (created, edited, approved, change requested, rescheduled, published, deleted, automation created) is recorded with who caused it: `dashboard`, `claude-mcp` or `system`. It's shown on each post and available at `GET /api/posts/:id/events` and `GET /api/brands/:id/events`.
 - No credentials pass through the agent: Instagram is connected via an OAuth URL the user opens; tokens live in the local SQLite only.
+- Competitor pages and ads enter the research step as quoted data; the strategy they produce only reaches the Brand Brain when a human clicks "apply".
 - Pins are handed out on a 30-minute lease and must be reported back (published / failed / released), so no item is lost between agents.
 
 ### Multi-agent workflows
