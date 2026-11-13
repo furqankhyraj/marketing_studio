@@ -1,0 +1,23 @@
+{
+  "name": "social-mcp-studio-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP stdio server that lets Claude Desktop / Claude Code / Cursor drive Social MCP Studio via its HTTP API.",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "smoke": "tsx scripts/smoke.ts",
+    "config": "tsx scripts/print-config.ts",
+    "inspect": "npx @modelcontextprotocol/inspector tsx src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

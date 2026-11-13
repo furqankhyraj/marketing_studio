@@ -1,0 +1,13 @@
+{
+  "name": "social-mcp-studio",
+  "private": true,
+  "type": "module",
+  "description": "Local social media autopilot: website -> brand brain -> audit -> reels -> approve -> Instagram, driveable from Claude via MCP.",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "start": "node scripts/start.mjs",
+    "dev": "node scripts/start.mjs",
+    "mcp:config": "cd mcp && npx tsx scripts/print-config.ts",
+    "claude:add": "node scripts/add-to-claude-desktop.mjs"
+  }
+}

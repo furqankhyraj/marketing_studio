@@ -1,0 +1,14 @@
+node_modules/
+data/
+.env
+*.log
+renderer/out/
+app.log
+out/
+web.log
+dist/
+voice/test-output/
+test-output/
+*.md
+docs/
+.claude/
