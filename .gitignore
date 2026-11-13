@@ -10,5 +10,6 @@ dist/
 voice/test-output/
 test-output/
 *.md
+!/README.md
 docs/
 .claude/
