@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { animate, motion, useMotionValue, useTransform, type PanInfo } from "framer-motion";
-import { ArrowLeft, ArrowRight, CalendarClock, Check, Heart, MessageCircle, MessageSquareText, PartyPopper, Pencil, RefreshCw, Wand2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarClock, Check, Heart, MessageCircle, MessageSquareText, PartyPopper, Pencil, RefreshCw, Trash2, Wand2, X } from "lucide-react";
 import { api } from "../lib/api";
 import { fmtDateTime, fmtTime } from "../lib/format";
 import type { Post } from "../lib/types";
@@ -95,6 +95,22 @@ function ApproveInner({ brandId }: { brandId: string }) {
   const [open, setOpen] = useState<Post | null>(null);
   const [chatFor, setChatFor] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
+  const [rejectFor, setRejectFor] = useState<Post | null>(null);
+  const [rejecting, setRejecting] = useState(false);
+  const reject = async () => {
+    if (!rejectFor) return;
+    setRejecting(true);
+    try {
+      await api.deletePost(rejectFor.id);
+      q.setData((list) => (list ?? []).filter((x) => x.id !== rejectFor.id));
+      toast("success", "Rejected", "The post was removed and its slot is free again.");
+      setRejectFor(null);
+    } catch (e) {
+      fail(e, "Couldn't reject");
+    } finally {
+      setRejecting(false);
+    }
+  };
   const busyRef = useRef(false);
 
   const posts = q.data ?? [];
@@ -144,15 +160,16 @@ function ApproveInner({ brandId }: { brandId: string }) {
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if (changeFor || open || chatFor || !top) return;
+      if (changeFor || rejectFor || open || chatFor || !top) return;
       const t = e.target as HTMLElement;
       if (t.tagName === "INPUT" || t.tagName === "TEXTAREA") return;
       if (e.key === "ArrowRight") window.dispatchEvent(new CustomEvent("sms-swipe", { detail: "right" }));
       if (e.key === "ArrowLeft") window.dispatchEvent(new CustomEvent("sms-swipe", { detail: "left" }));
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); setRejectFor(top); }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [changeFor, open, chatFor, top]);
+  }, [changeFor, rejectFor, open, chatFor, top]);
 
   const sendChange = async () => {
     if (!changeFor || !changeText.trim()) return;
@@ -173,7 +190,7 @@ function ApproveInner({ brandId }: { brandId: string }) {
       <PageHeader
         icon={<Heart className="size-5" />}
         title="Approve"
-        subtitle="Swipe right to approve, left to ask for a change. Arrow keys work too."
+        subtitle="Swipe right to approve, left to ask for a change, or reject it. Arrow keys and Delete work too."
         actions={<Button size="sm" variant="ghost" icon={<RefreshCw className="size-4" />} onClick={() => q.reload()}>Refresh</Button>}
       />
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -211,6 +228,14 @@ function ApproveInner({ brandId }: { brandId: string }) {
                   <X className="size-7" strokeWidth={2.5} />
                 </button>
                 <button
+                  onClick={() => setRejectFor(top)}
+                  className="flex size-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 shadow transition hover:scale-105 hover:text-rose-600 dark:border-zinc-700 dark:bg-zinc-900"
+                  aria-label="Reject"
+                  title="Reject: remove this post (Delete)"
+                >
+                  <Trash2 className="size-5" />
+                </button>
+                <button
                   onClick={() => setSkipped((s) => [...s.filter((x) => x !== top.id), top.id])}
                   className="flex size-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 shadow transition hover:scale-105 dark:border-zinc-700 dark:bg-zinc-900"
                   aria-label="Skip for now"
@@ -229,6 +254,8 @@ function ApproveInner({ brandId }: { brandId: string }) {
               </div>
               <div className="mt-2 flex gap-6 text-xs text-zinc-500">
                 <span className="flex items-center gap-1"><ArrowLeft className="size-3" />change</span>
+                <span className="flex items-center gap-1"><Trash2 className="size-3" />reject</span>
+                <span className="flex items-center gap-1">skip<ArrowRight className="size-3" /></span>
                 <span className="flex items-center gap-1">approve<ArrowRight className="size-3" /></span>
               </div>
 
@@ -279,6 +306,20 @@ function ApproveInner({ brandId }: { brandId: string }) {
           </Card>
         </div>
       </div>
+
+      <Modal
+        open={!!rejectFor}
+        onClose={() => (rejecting ? null : setRejectFor(null))}
+        title={<span className="flex items-center gap-2"><Trash2 className="size-5 text-rose-500" />Reject this post?</span>}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRejectFor(null)}>Keep it</Button>
+            <Button variant="danger" loading={rejecting} onClick={reject}>Reject</Button>
+          </>
+        }
+      >
+        <p className="text-sm text-zinc-500">“{rejectFor?.title}” will be deleted and its slot freed. Autopilot may fill the slot with a different post later. This can't be undone.</p>
+      </Modal>
 
       <Modal
         open={!!changeFor}

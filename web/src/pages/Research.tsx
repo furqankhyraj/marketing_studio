@@ -284,7 +284,7 @@ function ResearchInner({ brandId }: { brandId: string }) {
     <div>
       <PageHeader icon={<Radar className="size-5" />} title="Market research" subtitle={`Finds ${brand?.name ?? "your brand"}'s real competitors, reads their Instagram and every ad they run (Meta, Google, TikTok), and writes a strategy you can act on.`} />
       {!home.data.apify ? (
-        <div className="mb-4 flex items-center gap-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/50 dark:text-amber-200"><AlertTriangle className="size-4 shrink-0" />No Apify token yet: Google search, Instagram metrics and the ad libraries are skipped. Add it in <Link to="/settings" className="underline">Settings → Research</Link> (free tier covers a few runs a month).</div>
+        <div className="mb-4 flex items-center gap-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/50 dark:text-amber-200"><AlertTriangle className="size-4 shrink-0" />Running without Apify (optional): competitors come from Claude + your site, and the ad libraries are read by Claude itself when you ask it to (<code className="rounded bg-amber-100 px-1 dark:bg-amber-900/60">research_add_findings</code>). An Apify token in <Link to="/settings" className="underline">Settings → Research</Link> only automates that part.</div>
       ) : null}
       <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
         <div className="space-y-4">
